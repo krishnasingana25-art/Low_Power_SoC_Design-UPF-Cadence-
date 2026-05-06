@@ -1,0 +1,155 @@
+# top_soc.upf
+# Unified Power Format - matches book Chapter 8.7 style
+# Three power domains with isolation and retention
+
+# ============================================================
+# SUPPLY NETS AND DOMAINS
+# ============================================================
+
+# Domain A: Always-On (Controller)
+create_power_domain PDsoc \
+    -include_scope \
+    -elements {u_ctrl}
+
+create_supply_net VDD_SOC -domain PDsoc
+create_supply_net VSS      -domain PDsoc
+
+connect_supply_net VDD_SOC -ports {VDD_SOC}
+connect_supply_net VSS     -ports {VSS}
+
+set_domain_supply_net PDsoc \
+    -primary_power_net  VDD_SOC \
+    -primary_ground_net VSS
+
+# ============================================================
+# Domain B: ALU (Power Gated) - VDD_ALU
+# Book Section 6.2: separate switched supply
+# ============================================================
+create_power_domain PDalu \
+    -elements {u_alu}
+
+create_supply_net VDD_ALU -domain PDalu
+create_supply_net VSS_ALU -domain PDalu
+
+set_domain_supply_net PDalu \
+    -primary_power_net  VDD_ALU \
+    -primary_ground_net VSS
+
+# Power switch: header style (switches VDD)
+# Book Section 5.1, Section 14.2
+create_power_switch sw_alu \
+    -domain PDalu \
+    -input_supply_port  {sw_in  VDD_SOC} \
+    -output_supply_port {sw_out VDD_ALU} \
+    -control_port       {ctrl   /top_soc/pg_req_alu} \
+    -ack_port           {ack    /top_soc/pg_ack_alu} \
+    -on_state  {sw_on  sw_in {ctrl == 0}} \
+    -off_state {sw_off        {ctrl == 1}}
+
+# Isolation: clamp outputs to 0 when powered down
+# Book Section 5.2.1 - AND-style isolation
+set_isolation iso_alu_out \
+    -domain              PDalu \
+    -isolation_power_net VDD_SOC \
+    -clamp_value         0 \
+    -applies_to          outputs
+
+set_isolation_control iso_alu_out \
+    -domain          PDalu \
+    -isolation_signal /top_soc/u_ctrl/iso_alu \
+    -isolation_sense  high \
+    -location         parent
+
+# Level shifters on domain boundary
+# Book Section 3.2.5
+set_level_shifter ls_alu \
+    -domain      PDalu \
+    -applies_to  both \
+    -threshold   0.1 \
+    -rule        both \
+    -location    automatic
+
+# ============================================================
+# Domain C: MAC (Power Gated WITH Retention) - VDD_MAC
+# Book Section 5.3.2 - balloon retention registers
+# ============================================================
+create_power_domain PDmac \
+    -elements {u_mac}
+
+create_supply_net VDD_MAC  -domain PDmac
+create_supply_net VDD_RET  -domain PDmac  ;# always-on for shadow regs
+
+set_domain_supply_net PDmac \
+    -primary_power_net  VDD_MAC \
+    -primary_ground_net VSS
+
+# Power switch for MAC domain
+create_power_switch sw_mac \
+    -domain PDmac \
+    -input_supply_port  {sw_in  VDD_SOC} \
+    -output_supply_port {sw_out VDD_MAC} \
+    -control_port       {ctrl   /top_soc/pg_req_mac} \
+    -ack_port           {ack    /top_soc/pg_ack_mac} \
+    -on_state  {sw_on  sw_in {ctrl == 0}} \
+    -off_state {sw_off        {ctrl == 1}}
+
+# Isolation for MAC outputs
+set_isolation iso_mac_out \
+    -domain              PDmac \
+    -isolation_power_net VDD_SOC \
+    -clamp_value         0 \
+    -applies_to          outputs
+
+set_isolation_control iso_mac_out \
+    -domain           PDmac \
+    -isolation_signal /top_soc/u_ctrl/iso_mac \
+    -isolation_sense  high \
+    -location         parent
+
+# STATE RETENTION - balloon register style
+# Book Section 13.1.3: single-pin balloon
+# Shadow regs powered by VDD_RET (always-on)
+set_retention ret_mac \
+    -domain              PDmac \
+    -retention_power_net VDD_SOC \
+    -elements            {u_mac}
+
+set_retention_control ret_mac \
+    -domain          PDmac \
+    -save_signal    {/top_soc/u_ctrl/nretain_mac negedge} \
+    -restore_signal {/top_soc/u_ctrl/nretain_mac posedge}
+
+# Level shifters for MAC domain
+set_level_shifter ls_mac \
+    -domain     PDmac \
+    -applies_to both \
+    -threshold  0.1 \
+    -rule       both \
+    -location   automatic
+
+# ============================================================
+# POWER STATE TABLE
+# Defines legal combinations per book Section 6.3
+# ============================================================
+create_pst main_pst \
+    -supplies {VDD_SOC VDD_ALU VDD_MAC}
+
+# State 1: All domains active (normal operation)
+add_pst_state all_on \
+    -pst   main_pst \
+    -state {on on on}
+
+# State 2: ALU power gated, MAC active
+add_pst_state alu_off \
+    -pst   main_pst \
+    -state {on off on}
+
+# State 3: MAC power gated, ALU active
+add_pst_state mac_off \
+    -pst   main_pst \
+    -state {on on off}
+
+# State 4: Both compute domains gated (deep sleep)
+add_pst_state both_off \
+    -pst   main_pst \
+    -state {on off off}
