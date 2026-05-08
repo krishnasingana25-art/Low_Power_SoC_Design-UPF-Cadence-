@@ -74,29 +74,5 @@ Cadence Xcelium
 Power Analysis
 Cadence Voltus
 
+<img width="350" height="500" alt="image" src="https://github.com/user-attachments/assets/01007bae-912e-4b6f-8486-1ce9eb521c60" />
 
-low_power/
-│
-├── rtl/
-│   ├── alu_core.v
-│   ├── mac_unit.v
-│   ├── power_controller.v
-│   ├── top_soc.v
-│   └── icg_stub.v
-│
-├── tb/
-│   └── tb_top_soc.v
-│
-├── scripts/
-│   ├── genus_run.tcl
-│   ├── voltus_run.tcl
-│   └── netlists/
-│
-├── vcd/
-│   ├── baseline.vcd
-│   ├── clock.vcd
-│   └── power.vcd
-│
-├── reports/
-│
-└── voltus_results/
